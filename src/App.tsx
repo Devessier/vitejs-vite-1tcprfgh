@@ -62,6 +62,22 @@ const deleteAsset = fromPromise<void, { assetId: string }>(
   }
 );
 
+const addAsset = fromPromise<Asset, { assetId: string }>(
+  async ({ input: { assetId } }) => {
+    console.log("Adding asset", assetId);
+
+    await new Promise((resolve) => setTimeout(resolve, Math.random() * 1000));
+
+    return {
+      id: assetId,
+      code: "new-code",
+      type: "FUND",
+      name: assetId,
+      weight: "50%",
+    };
+  }
+);
+
 const treeMachine = setup({
   types: {
     context: {} as {
@@ -83,12 +99,16 @@ const treeMachine = setup({
         }
       | {
           type: "DELETE_ASSET";
+        }
+      | {
+          type: "ADD_ASSET";
         },
     tags: {} as "Synchronizing",
   },
   actors: {
     "Fetch assets": fetchAssets,
     "Delete asset": deleteAsset,
+    "Add asset": addAsset,
   },
 }).createMachine({
   id: "Tree",
@@ -122,6 +142,10 @@ const treeMachine = setup({
         DELETE_ASSET: {
           guard: ({ context }) => context.selectedAssetId !== undefined,
           target: "Deleting asset",
+        },
+        ADD_ASSET: {
+          guard: ({ context }) => context.selectedFund !== undefined,
+          target: "Adding asset",
         },
       },
     },
@@ -160,6 +184,34 @@ const treeMachine = setup({
         },
       },
     },
+    "Adding asset": {
+      tags: "Synchronizing",
+      invoke: {
+        src: "Add asset",
+        input: ({ context }) => {
+          if (context.selectedFund === undefined) {
+            throw new Error("No fund selected");
+          }
+
+          return {
+            assetId: context.selectedFund,
+          };
+        },
+        onDone: {
+          target: "Idle",
+          actions: assign({
+            selectedFund: undefined,
+            assets: ({ context, event }) => context.assets.concat(event.output),
+          }),
+        },
+        onError: {
+          target: "Idle",
+          actions: assign({
+            selectedFund: undefined,
+          }),
+        },
+      },
+    },
   },
   on: {
     SELECT_FUND: {
@@ -180,28 +232,29 @@ const treeMachine = setup({
   },
 });
 
-function App() {
-  const funds = [
-    "FUND – AAA",
-    "FUND – BBB",
-    "FUND – CCC",
-    "FUND – DDD",
-    "FUND – EEE",
-    "FUND – FFF",
-  ];
+const funds = [
+  "FUND – AAA",
+  "FUND – BBB",
+  "FUND – CCC",
+  "FUND – DDD",
+  "FUND – EEE",
+  "FUND – FFF",
+];
 
+function App() {
   const [state, send] = useActor(treeMachine);
 
   console.log("state", state);
 
   const isSynchronizing = state.hasTag("Synchronizing");
-  const canDelete = state.can({ type: "DELETE_ASSET" });
+  const canDeleteAsset = state.can({ type: "DELETE_ASSET" });
+  const canAddAsset = state.can({ type: "ADD_ASSET" });
 
   return (
     <div className="min-h-screen p-8">
       <header className="flex justify-between items-center">
         <Button
-          disabled={isSynchronizing || !canDelete}
+          disabled={!canDeleteAsset}
           onClick={() => {
             send({
               type: "DELETE_ASSET",
@@ -214,6 +267,8 @@ function App() {
         <div className="flex items-center gap-x-2">
           <select
             disabled={isSynchronizing}
+            defaultValue=""
+            value={state.context.selectedFund ?? ""}
             onChange={(event) => {
               send({
                 type: "SELECT_FUND",
@@ -230,7 +285,14 @@ function App() {
             ))}
           </select>
 
-          <Button disabled={isSynchronizing || !state.context.selectedFund}>
+          <Button
+            disabled={!canAddAsset}
+            onClick={() => {
+              send({
+                type: "ADD_ASSET",
+              });
+            }}
+          >
             Add
           </Button>
 
