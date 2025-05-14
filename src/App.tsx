@@ -78,6 +78,23 @@ const addAsset = fromPromise<Asset, { assetId: string }>(
   }
 );
 
+const replaceAsset = fromPromise<
+  Asset,
+  { oldAssetId: string; newAssetId: string }
+>(async ({ input: { oldAssetId, newAssetId } }) => {
+  console.log("Replacing asset", oldAssetId, "with", newAssetId);
+
+  await new Promise((resolve) => setTimeout(resolve, Math.random() * 1000));
+
+  return {
+    id: newAssetId,
+    code: "new-code",
+    type: "FUND",
+    name: newAssetId,
+    weight: "50%",
+  };
+});
+
 const treeMachine = setup({
   types: {
     context: {} as {
@@ -102,6 +119,9 @@ const treeMachine = setup({
         }
       | {
           type: "ADD_ASSET";
+        }
+      | {
+          type: "REPLACE_ASSET";
         },
     tags: {} as "Synchronizing",
   },
@@ -109,6 +129,7 @@ const treeMachine = setup({
     "Fetch assets": fetchAssets,
     "Delete asset": deleteAsset,
     "Add asset": addAsset,
+    "Replace asset": replaceAsset,
   },
 }).createMachine({
   id: "Tree",
@@ -146,6 +167,12 @@ const treeMachine = setup({
         ADD_ASSET: {
           guard: ({ context }) => context.selectedFund !== undefined,
           target: "Adding asset",
+        },
+        REPLACE_ASSET: {
+          guard: ({ context }) =>
+            context.selectedAssetId !== undefined &&
+            context.selectedFund !== undefined,
+          target: "Replacing asset",
         },
       },
     },
@@ -212,6 +239,43 @@ const treeMachine = setup({
         },
       },
     },
+    "Replacing asset": {
+      tags: "Synchronizing",
+      invoke: {
+        src: "Replace asset",
+        input: ({ context }) => {
+          if (
+            context.selectedAssetId === undefined ||
+            context.selectedFund === undefined
+          ) {
+            throw new Error("No asset or fund selected");
+          }
+
+          return {
+            oldAssetId: context.selectedAssetId,
+            newAssetId: context.selectedFund,
+          };
+        },
+        onDone: {
+          target: "Idle",
+          actions: assign({
+            selectedAssetId: undefined,
+            selectedFund: undefined,
+            assets: ({ context, event }) =>
+              context.assets
+                .filter((asset) => asset.id !== context.selectedAssetId)
+                .concat(event.output),
+          }),
+        },
+        onError: {
+          target: "Idle",
+          actions: assign({
+            selectedAssetId: undefined,
+            selectedFund: undefined,
+          }),
+        },
+      },
+    },
   },
   on: {
     SELECT_FUND: {
@@ -249,6 +313,7 @@ function App() {
   const isSynchronizing = state.hasTag("Synchronizing");
   const canDeleteAsset = state.can({ type: "DELETE_ASSET" });
   const canAddAsset = state.can({ type: "ADD_ASSET" });
+  const canReplaceAsset = state.can({ type: "REPLACE_ASSET" });
 
   return (
     <div className="min-h-screen p-8">
@@ -296,7 +361,16 @@ function App() {
             Add
           </Button>
 
-          <Button disabled={isSynchronizing}>Replace</Button>
+          <Button
+            disabled={!canReplaceAsset}
+            onClick={() => {
+              send({
+                type: "REPLACE_ASSET",
+              });
+            }}
+          >
+            Replace
+          </Button>
         </div>
 
         <Button disabled={isSynchronizing}>Import</Button>
