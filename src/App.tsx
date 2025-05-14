@@ -2,6 +2,12 @@ import { assign, fromPromise, setup } from "xstate";
 import { useActor } from "@xstate/react";
 import { Button } from "./Button";
 import clsx from "clsx";
+import {
+  Dialog,
+  DialogBackdrop,
+  DialogPanel,
+  DialogTitle,
+} from "@headlessui/react";
 
 interface Asset {
   id: string;
@@ -95,6 +101,29 @@ const replaceAsset = fromPromise<
   };
 });
 
+const importData = fromPromise<{ assets: Array<Asset> }>(async () => {
+  await new Promise((resolve) => setTimeout(resolve, Math.random() * 1000));
+
+  return {
+    assets: [
+      {
+        id: "5",
+        code: "new-code",
+        type: "FUND",
+        name: "New Fund",
+        weight: "50%",
+      },
+      {
+        id: "6",
+        code: "new-code-2",
+        type: "FUND",
+        name: "New Fund 2",
+        weight: "50%",
+      },
+    ],
+  };
+});
+
 const treeMachine = setup({
   types: {
     context: {} as {
@@ -122,6 +151,15 @@ const treeMachine = setup({
         }
       | {
           type: "REPLACE_ASSET";
+        }
+      | {
+          type: "OPEN_IMPORT_DIALOG";
+        }
+      | {
+          type: "CLOSE_IMPORT_DIALOG";
+        }
+      | {
+          type: "IMPORT_DATA";
         },
     tags: {} as "Synchronizing",
   },
@@ -130,6 +168,7 @@ const treeMachine = setup({
     "Delete asset": deleteAsset,
     "Add asset": addAsset,
     "Replace asset": replaceAsset,
+    "Import data": importData,
   },
 }).createMachine({
   id: "Tree",
@@ -173,6 +212,9 @@ const treeMachine = setup({
             context.selectedAssetId !== undefined &&
             context.selectedFund !== undefined,
           target: "Replacing asset",
+        },
+        OPEN_IMPORT_DIALOG: {
+          target: "Import dialog opened",
         },
       },
     },
@@ -276,6 +318,41 @@ const treeMachine = setup({
         },
       },
     },
+    "Import dialog opened": {
+      initial: "Idle",
+      states: {
+        Idle: {
+          on: {
+            IMPORT_DATA: {
+              target: "Importing data",
+            },
+          },
+        },
+        "Importing data": {
+          invoke: {
+            src: "Import data",
+            onDone: {
+              target: "Done",
+              actions: assign({
+                assets: ({ context, event }) =>
+                  context.assets.concat(event.output.assets),
+              }),
+            },
+          },
+        },
+        Done: {
+          type: "final",
+        },
+      },
+      on: {
+        CLOSE_IMPORT_DIALOG: {
+          target: "Idle",
+        },
+      },
+      onDone: {
+        target: "Idle",
+      },
+    },
   },
   on: {
     SELECT_FUND: {
@@ -373,7 +450,16 @@ function App() {
           </Button>
         </div>
 
-        <Button disabled={isSynchronizing}>Import</Button>
+        <Button
+          disabled={isSynchronizing}
+          onClick={() => {
+            send({
+              type: "OPEN_IMPORT_DIALOG",
+            });
+          }}
+        >
+          Import
+        </Button>
       </header>
 
       <div className="mt-8 flow-root">
@@ -522,6 +608,78 @@ function App() {
           </div>
         </div>
       </div>
+
+      <Dialog
+        open={state.matches("Import dialog opened")}
+        onClose={() => {
+          send({ type: "CLOSE_IMPORT_DIALOG" });
+        }}
+        className="relative z-10"
+      >
+        <DialogBackdrop
+          transition
+          className="fixed inset-0 bg-gray-500/75 transition-opacity data-[closed]:opacity-0 data-[enter]:duration-300 data-[leave]:duration-200 data-[enter]:ease-out data-[leave]:ease-in"
+        />
+
+        <div className="fixed inset-0 z-10 w-screen overflow-y-auto">
+          <div className="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
+            <DialogPanel
+              transition
+              className="relative transform overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 text-left shadow-xl transition-all data-[closed]:translate-y-4 data-[closed]:opacity-0 data-[enter]:duration-300 data-[leave]:duration-200 data-[enter]:ease-out data-[leave]:ease-in sm:my-8 sm:w-full sm:max-w-sm sm:p-6 data-[closed]:sm:translate-y-0 data-[closed]:sm:scale-95"
+            >
+              <div>
+                <div className="text-center sm:mt-5">
+                  <DialogTitle
+                    as="h3"
+                    className="text-base font-semibold text-gray-900"
+                  >
+                    Import data
+                  </DialogTitle>
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-500">
+                      Are you sure you want to import data?
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-5 sm:mt-6 space-y-2">
+                <button
+                  disabled={
+                    !state.matches({
+                      "Import dialog opened": "Idle",
+                    })
+                  }
+                  type="button"
+                  onClick={() => {
+                    send({ type: "IMPORT_DATA" });
+                  }}
+                  className="inline-flex w-full justify-center rounded-md disabled:bg-blue-300 bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 cursor-pointer"
+                >
+                  {!state.matches({
+                    "Import dialog opened": "Idle",
+                  })
+                    ? "Loading..."
+                    : "Import data"}
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    !state.matches({
+                      "Import dialog opened": "Idle",
+                    })
+                  }
+                  onClick={() => {
+                    send({ type: "CLOSE_IMPORT_DIALOG" });
+                  }}
+                  className="inline-flex w-full justify-center rounded-md disabled:bg-red-300 bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </DialogPanel>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 }
